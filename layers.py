@@ -152,6 +152,145 @@ class LSTMCell(keras.Layer):
         ht = tf.multiply(ot, tf.nn.tanh(ct))
 
         return ht, [ht, ct]
+    
+class AttentionCustom(keras.Layer):
+
+    def __init__(self, max_seq_length, units, **kwargs):
+        super().__init__(**kwargs)
+        self.max_seq_length = max_seq_length
+        self.units = units
+
+    def build(self, input_shape):
+
+        # key
+        self.weight_key = self.add_weight(shape=(input_shape[-1], self.units),
+                                            initializer='uniform',
+                                            trainable=True,
+                                            name='weight_key')
+
+        # query
+        self.weight_query = self.add_weight(shape=(input_shape[-1], self.units),
+                                            initializer='uniform',
+                                            trainable=True,
+                                            name='weight_query')
+
+        # value
+        self.weight_value = self.add_weight(shape=(input_shape[-1], self.units),
+                                            initializer='uniform',
+                                            trainable=True,
+                                            name='weight_value')
+        
+
+        super().build(input_shape)
+
+    
+    def apply_mask(self, logits, mask):
+        if mask is not None:
+            logits = tf.add(logits, (mask)*-1e9)
+        return logits
+
+    def call(self, inputs, mask=None):
+        q = tf.matmul(inputs, self.weight_key)
+        k = tf.matmul(inputs, self.weight_query)
+        v = tf.matmul(inputs, self.weight_value)
+
+        scaled_logits = tf.matmul(q, k, transpose_b=True)/tf.math.sqrt(tf.cast(self.units, tf.float32))
+        masked_logits = self.apply_mask(scaled_logits, mask)
+
+        attention_weights = tf.nn.softmax(masked_logits)
+        attention = tf.matmul(attention_weights, v)
+        return attention
+    
+
+
+class MultiHeadAttention(keras.Layer):
+
+    def __init__(self, max_seq_length, units, num_heads, **kwargs):
+        super().__init__(**kwargs)
+        self.max_seq_length = max_seq_length
+        self.units = units
+        self.num_heads = num_heads
+        self.depth_head = self.units//self.num_heads
+
+    def build(self, input_shape):
+
+        # key
+        self.weight_key = self.add_weight(shape=(input_shape[-1], self.units),
+                                            initializer='uniform',
+                                            trainable=True,
+                                            name='weight_key')
+
+        # query
+        self.weight_query = self.add_weight(shape=(input_shape[-1], self.units),
+                                            initializer='uniform',
+                                            trainable=True,
+                                            name='weight_query')
+
+        # value
+        self.weight_value = self.add_weight(shape=(input_shape[-1], self.units),
+                                            initializer='uniform',
+                                            trainable=True,
+                                            name='weight_value')
+        
+        #final projection
+        self.weight_o = self.add_weight(shape=(self.units, self.units),
+                                            initializer='uniform',
+                                            trainable=True,
+                                            name='weight_o')
+        
+
+        super().build(input_shape)
+
+
+    def split_heads(self, inp, batch_size):
+        """
+        inp: (batch, max_seq, units)
+        out: (batch, num_heads, max_seq, depth_head)
+        
+        """
+        seq = tf.shape(inp)[1]
+        out = tf.reshape(inp, shape=(batch_size, seq , self.num_heads, self.depth_head))
+        out = tf.transpose(out, perm=[0, 2, 1, 3])
+        return out
+    
+    def apply_mask(self, logits, mask):
+        if mask is not None:
+            logits = tf.add(logits, (mask)*-1e9)
+        return logits
+
+    def call(self, inputs, mask=None):
+
+        batch_size = tf.shape(inputs)[0]
+        seq = tf.shape(inputs)[1]
+        q = tf.matmul(inputs, self.weight_key)
+        k = tf.matmul(inputs, self.weight_query)
+        v = tf.matmul(inputs, self.weight_value)
+
+        #split heads
+        q = self.split_heads(q, batch_size)
+        k = self.split_heads(k, batch_size)
+        v = self.split_heads(v, batch_size)
+
+        #scaled attention
+        logits = tf.matmul(q, k, transpose_b=True)/tf.math.sqrt(tf.cast(self.units, tf.float32))
+        logits_masked = self.apply_mask(logits, mask)
+        attention_weights = tf.nn.softmax(logits_masked)
+        attention = tf.matmul(attention_weights, v) #output now: batch, head, seq, depth
+
+        #combine heads
+        attention = tf.transpose(attention, perm=[0,2,1,3]) # back to batch, seq, head, depth
+        concat_attention = tf.reshape(attention, shape=(batch_size, seq, self.units))
+
+        #final output
+        output = tf.matmul(concat_attention, self.weight_o)
+
+        return output
+
+
+
+
+
+
         
 
         
@@ -161,7 +300,18 @@ class LSTMCell(keras.Layer):
 
 
 if __name__ == "__main__":
-    rnn = RNNCell(5,None)
-    out = rnn.build(input_shape=(3,4,16))
-    print (out)
+    # rnn = RNNCell(5,None)
+    # out = rnn.build(input_shape=(3,4,16))
+    # print (out)
     # rnn.summary()
+
+    def create_causal_mask(seq_len):
+        mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, 0)
+        return mask
+
+    # layer = AttentionCustom(max_seq_length=10, units=8)
+    x = tf.random.normal((2, 10, 16))  # batch=2, seq=10, features=16
+    mask = create_causal_mask(10)
+    layer = MultiHeadAttention(max_seq_length=10, units=32, num_heads=4)
+    out = layer(x, mask=mask)
+    print(out.shape)

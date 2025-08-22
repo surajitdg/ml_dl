@@ -205,7 +205,7 @@ if __name__ == "__main__":
     # config
     batch_size = 2048
     timesteps = 10
-    features = 8
+    features = 32
     num_classes = 5
 
     # random input (batch, timesteps, features)
