@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow import keras
 import numpy as np
 from keras.src import initializers
+from utility_layers import LayerNorm
 
 
 class DenseLayer(keras.Layer):
@@ -23,6 +24,7 @@ class DenseLayer(keras.Layer):
                                       initializer='zeros',
                                       trainable=True,
                                       name='bias')
+        super().build(input_shape)
         
     def call(self, inputs):
         return tf.matmul(inputs, self.weight)+self.bias
@@ -290,6 +292,41 @@ class MultiHeadAttention(keras.Layer):
 
 
 
+class SingleTransformerBlock(keras.Layer):
+
+    def __init__(self, max_seq_length, units, num_heads, dff, dropout_rate, **kwargs):
+        super().__init__(**kwargs)
+        self.units = units
+        self.dff = dff
+        self.attention = MultiHeadAttention(max_seq_length, units, num_heads)
+        self.layernorm1 = LayerNorm(epsilon=0.001)
+        self.layernorm2 = LayerNorm(epsilon=0.002)
+        self.dnn_1 = DenseLayer(dff)
+        self.dnn_2 = DenseLayer(self.units)
+        self.dropout_1 = keras.layers.Dropout(dropout_rate) # need to replace with custom dilution/dropout layer
+        self.dropout_2 = keras.layers.Dropout(dropout_rate)
+
+
+    def build(self, input_shape):
+        super().build(input_shape)
+
+    def call(self, inputs, training=False, mask=None):
+        attention = self.attention(inputs, mask) #multi head attention
+        attention = self.dropout_1(attention, training=training) #dropout
+        # print (attention.shape)
+        attention_normed = self.layernorm1(tf.add(attention,inputs)) # layer normed
+        projection_1 = self.dnn_1(attention_normed) #first projection
+        projection_2 = self.dnn_2(projection_1)
+        projection_2 = self.dropout_2(projection_2, training=training) #dropout second
+        out = self.layernorm2(tf.add(projection_2,attention_normed)) #second layer norm
+        return out
+    
+
+
+
+
+
+    
 
         
 
@@ -310,8 +347,9 @@ if __name__ == "__main__":
         return mask
 
     # layer = AttentionCustom(max_seq_length=10, units=8)
-    x = tf.random.normal((2, 10, 16))  # batch=2, seq=10, features=16
+    x = tf.random.normal((2, 10, 32))  # batch=2, seq=10, features=16
     mask = create_causal_mask(10)
-    layer = MultiHeadAttention(max_seq_length=10, units=32, num_heads=4)
+    # layer = MultiHeadAttention(max_seq_length=10, units=32, num_heads=4)
+    layer = SingleTransformerBlock(max_seq_length=10, units=32, num_heads=4, dff=64, dropout_rate=0.01)
     out = layer(x, mask=mask)
     print(out.shape)
