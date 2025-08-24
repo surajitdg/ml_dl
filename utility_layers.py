@@ -5,6 +5,10 @@ from keras.src import initializers
 
 
 class LayerNorm(keras.Layer):
+    """
+    Layer Norm
+    
+    """
     def __init__(self, epsilon, **kwargs):
         super().__init__(**kwargs)
         self.epsilon = epsilon
@@ -29,6 +33,25 @@ class LayerNorm(keras.Layer):
         mean_scaled = self.gamma * normalized
         out = tf.add(mean_scaled,self.beta)
         return out
+    
+class EmbeddingLayer(keras.Layer):
+    """
+    Embedding layer
+    """
+    def __init__(self, vocab, feature_dim, **kwargs):
+        super().__init__(**kwargs)
+        self.vocab = vocab
+        self.feature_dim = feature_dim
+
+    def build(self, input_shape):
+        self.embeddings = self.add_weight(shape=(self.vocab, self.feature_dim),
+                                          initializer = 'uniform',
+                                          trainable = 'True',
+                                          name='emb_weights')
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return tf.gather(self.embeddings, inputs, axis=0)
     
 
 if __name__ == "__main__":

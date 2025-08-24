@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow import keras
 import numpy as np
 from keras.src import initializers
-from utility_layers import LayerNorm
+from utility_layers import LayerNorm, EmbeddingLayer
 
 
 class DenseLayer(keras.Layer):
@@ -31,6 +31,10 @@ class DenseLayer(keras.Layer):
     
 
 class RNNCell(keras.Layer):
+    """
+    Single RNN cell
+    
+    """
 
     def __init__(self, units, **kwargs):
         super().__init__(**kwargs)
@@ -67,6 +71,10 @@ class RNNCell(keras.Layer):
     
 
 class LSTMCell(keras.Layer):
+    """
+    Single LSTM cell
+
+    """
     
     def __init__(self, units, **kwargs):
         super().__init__(**kwargs)
@@ -156,6 +164,10 @@ class LSTMCell(keras.Layer):
         return ht, [ht, ct]
     
 class AttentionCustom(keras.Layer):
+    """
+    Single head attention
+    
+    """
 
     def __init__(self, max_seq_length, units, **kwargs):
         super().__init__(**kwargs)
@@ -206,6 +218,10 @@ class AttentionCustom(keras.Layer):
 
 
 class MultiHeadAttention(keras.Layer):
+    """
+    Multi head attention
+
+    """
 
     def __init__(self, max_seq_length, units, num_heads, **kwargs):
         super().__init__(**kwargs)
@@ -293,6 +309,10 @@ class MultiHeadAttention(keras.Layer):
 
 
 class SingleTransformerBlock(keras.Layer):
+    """
+    Single Transformer Block
+
+    """
 
     def __init__(self, max_seq_length, units, num_heads, dff, dropout_rate, **kwargs):
         super().__init__(**kwargs)
@@ -321,8 +341,36 @@ class SingleTransformerBlock(keras.Layer):
         out = self.layernorm2(tf.add(projection_2,attention_normed)) #second layer norm
         return out
     
+class TransformerEncoder(keras.Layer):
+    """
+    Transformer Encoder
+    """
+    def __init__(self, no_layers, max_seq_length, feature_dim, vocab_size, num_heads, dropout_rate, dff, **kwargs):
+        super().__init__(**kwargs)
+        self.embedding =  EmbeddingLayer(vocab=vocab_size, feature_dim=feature_dim) 
+        self.pos_enc = self.positional_encoding()
+        self.no_layers = no_layers
+        for i in no_layers:
+            self.enc_layers = SingleTransformerBlock(max_seq_length=max_seq_length, units=feature_dim, num_heads=num_heads, dff=dff, dropout_rate=dropout_rate)
+        self.dropout = keras.layers.Dropout(dropout_rate)
 
+    def position_encoding(self):
+        """
+        To be implemented
+        """
+        return None
+    
 
+    def call(self, inputs, training =False, mask=None):
+        max_seq_length = tf.shape(inputs)[1]
+        emb = self.embedding(inputs)
+        emb_pos = emb+self.position_encoding()
+        out = self.dropout(emb_pos)
+        
+        for i in self.no_layers:
+            out = self.enc_layers(out, training=True, mask=mask)
+        
+        return out
 
 
 
