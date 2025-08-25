@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow import keras
 import numpy as np
 from keras.src import initializers
-from layers import DenseLayer, RNNCell, LSTMCell
+from layers import DenseLayer, RNNCell, LSTMCell, TransformerEncoder
 from loss import MSE, MAE
 
 class LinReg(keras.Model):
@@ -110,16 +110,32 @@ class CustomLSTM(keras.Model):
         else:
             return ht
 
-        
+
+class TransformerModel(keras.Model):
+    def __init__(self, no_layers, max_seq_length, feature_dim, vocab_size, num_heads, dropout_rate, dff, no_classes, **kwargs):
+        super().__init__(**kwargs)
+        self.max_seq_length = max_seq_length
+        self.transformer_encoder = TransformerEncoder(no_layers,max_seq_length,feature_dim,vocab_size,num_heads,dropout_rate,dff)
+        self.classifier = DenseLayer(no_classes)
+
+    def create_causal_mask(self, seq_len):
+        mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, 0)
+        return mask
 
 
+    def call(self, inputs, training=True, mask=None):
 
-
-
-
-
-
-
+        # layer = AttentionCustom(max_seq_length=10, units=8)
+        # x = tf.random.normal((10000, 200, 128))  # batch=2, seq=10, features=16
+        mask = self.create_causal_mask(128)
+        out = self.transformer_encoder(inputs, training=training, mask=mask)
+        inp_shapes = tf.shape(inputs)
+        final_logits = tf.zeros(shape=(inp_shapes[0], inp_shapes[2]))
+        for i in self.max_seq_length:
+            final_logits = final_logits + out[ : , i, :]
+        out = self.classifier(final_logits)
+        distributions = tf.nn.softmax(out)
+        return distributions
 
 
 
@@ -228,13 +244,32 @@ if __name__ == "__main__":
     # model.fit(X, y, epochs=10, batch_size=16)
 
 
-    inputs = tf.keras.Input(shape=(timesteps,features))
-    out = CustomLSTM(512, return_sequences=True)(inputs)
-    out = CustomLSTM(1024, return_sequences=False)(out)
+    # inputs = tf.keras.Input(shape=(timesteps,features))
+    # out = CustomLSTM(512, return_sequences=True)(inputs)
+    # out = CustomLSTM(1024, return_sequences=False)(out)
 
-    outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(out)
+    # outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(out)
 
-    model = tf.keras.Model(inputs, outputs)
-    model.summary()
-    model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.0001, clipnorm=1.0),loss='categorical_crossentropy',metrics=['accuracy'])
-    model.fit(X, y, epochs=10, batch_size=16)
+    # model = tf.keras.Model(inputs, outputs)
+    # model.summary()
+    # model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.0001, clipnorm=1.0),loss='categorical_crossentropy',metrics=['accuracy'])
+    # model.fit(X, y, epochs=10, batch_size=16)
+
+
+    #transformer
+
+    model = TransformerModel(
+        no_layers=2, feature_dim=128, num_heads=4, dff=512,
+        vocab_size=10000, max_seq_length=200, no_classes=5,
+        dropout_rate=0.001
+    )
+
+    model.compile(optimizer='adam',
+                loss='sparse_categorical_crossentropy',
+                metrics=['accuracy'])
+
+    # fake data for demo
+    X = np.random.randint(0, 10000, (32, 50))
+    y = np.random.randint(0, 5, (32,))
+    
+    model.fit(X, y, epochs=2)

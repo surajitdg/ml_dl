@@ -348,26 +348,39 @@ class TransformerEncoder(keras.Layer):
     def __init__(self, no_layers, max_seq_length, feature_dim, vocab_size, num_heads, dropout_rate, dff, **kwargs):
         super().__init__(**kwargs)
         self.embedding =  EmbeddingLayer(vocab=vocab_size, feature_dim=feature_dim) 
-        self.pos_enc = self.positional_encoding()
+        # self.pos_enc = self.position_encoding(max_seq_length,feature_dim)
         self.no_layers = no_layers
-        for i in no_layers:
+        for i in range(no_layers):
             self.enc_layers = SingleTransformerBlock(max_seq_length=max_seq_length, units=feature_dim, num_heads=num_heads, dff=dff, dropout_rate=dropout_rate)
         self.dropout = keras.layers.Dropout(dropout_rate)
 
-    def position_encoding(self):
+    def position_encoding_vectorized(self):
         """
         To be implemented
         """
         return None
+
+    def position_encoding(self, seq_len, d, n=10000): 
+        """
+        # will not work need to replace with a vectorized version as item assignment not allowed here.
+        """
+        p = tf.zeros(shape=(seq_len, d))
+        for k in range(seq_len):                       # position index
+            for i in tf.range(int(d/2)):              # frequency index
+                denominator = tf.math.pow(n, 2*i/d)       # = 10000^(2i/d)
+                p[k, 2*i]   = tf.math.sin(k/denominator)    # even dims
+                p[k, 2*i+1] = tf.math.cos(k/denominator)    # odd dims
+        return p
+    
     
 
     def call(self, inputs, training =False, mask=None):
         max_seq_length = tf.shape(inputs)[1]
         emb = self.embedding(inputs)
-        emb_pos = emb+self.position_encoding()
-        out = self.dropout(emb_pos)
+        # emb_pos = emb+self.pos_enc
+        out = self.dropout(emb)
         
-        for i in self.no_layers:
+        for i in range(self.no_layers):
             out = self.enc_layers(out, training=True, mask=mask)
         
         return out
