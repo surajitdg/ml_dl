@@ -348,17 +348,27 @@ class TransformerEncoder(keras.Layer):
     def __init__(self, no_layers, max_seq_length, feature_dim, vocab_size, num_heads, dropout_rate, dff, **kwargs):
         super().__init__(**kwargs)
         self.embedding =  EmbeddingLayer(vocab=vocab_size, feature_dim=feature_dim) 
-        # self.pos_enc = self.position_encoding(max_seq_length,feature_dim)
+        self.pos_enc = self.position_encoding_vectorized(max_seq_length, feature_dim)
         self.no_layers = no_layers
         for i in range(no_layers):
             self.enc_layers = SingleTransformerBlock(max_seq_length=max_seq_length, units=feature_dim, num_heads=num_heads, dff=dff, dropout_rate=dropout_rate)
         self.dropout = keras.layers.Dropout(dropout_rate)
 
-    def position_encoding_vectorized(self):
+    def position_encoding_vectorized(self, max_pos, d_model):
         """
         To be implemented
         """
-        return None
+        pos = np.arange(max_pos)[:, np.newaxis]
+        i = np.arange(d_model)[np.newaxis, :]
+        angle_rates = 1 / np.power(10000, (2*(i//2))/np.float32(d_model))
+        angle_rads = pos * angle_rates
+
+        # apply sin to even indices, cos to odd
+        pos_encoding = np.zeros((max_pos, d_model))
+        pos_encoding[:, 0::2] = np.sin(angle_rads[:, 0::2])
+        pos_encoding[:, 1::2] = np.cos(angle_rads[:, 1::2])
+        return tf.cast(pos_encoding[np.newaxis, ...], dtype=tf.float32)
+
 
     def position_encoding(self, seq_len, d, n=10000): 
         """
@@ -371,13 +381,16 @@ class TransformerEncoder(keras.Layer):
                 p[k, 2*i]   = tf.math.sin(k/denominator)    # even dims
                 p[k, 2*i+1] = tf.math.cos(k/denominator)    # odd dims
         return p
+
+    def build(self, input_shape):
+        super().build(input_shape)
     
     
 
     def call(self, inputs, training =False, mask=None):
         max_seq_length = tf.shape(inputs)[1]
         emb = self.embedding(inputs)
-        # emb_pos = emb+self.pos_enc
+        emb_pos = emb+self.pos_enc
         out = self.dropout(emb)
         
         for i in range(self.no_layers):
